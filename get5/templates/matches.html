@@ -1,18 +1,20 @@
-{% from "macros.html" import pagination_buttons, pagination_active %}
-
 {% extends "layout.html" %}
 {% block content %}
 
 <div id="content">
 
   <h1>
-  {% if my_matches %}
-  Your matches
-  {% elif all_matches %}
-  All matches
-  {% else %}
-  Matches for <a href="/user/{{ match_owner.id }}"> {{ match_owner.name }}</a>
-  {% endif%}
+    {% if my_matches %}
+    Your matches <h4><form action="{{ url_for('match.delete_cancelled_matches') }}" method=post>
+      <button class="btn btn-danger" type=submit>Delete Cancelled Matches</button>
+      </form></h4>
+    {% elif all_matches %}
+    All matches
+    {% elif season_matches %}
+    Season Matches for <a href="/season/{{ season.id }}">{{season.name}}</a>
+    {% else %}
+    Matches for <a href="/user/{{ match_owner.id }}"> {{ match_owner.name }}</a>
+    {% endif%}
   </h1>
 
   <table class="table table-striped">
@@ -22,17 +24,20 @@
         <th>Team 1</th>
         <th>Team 2</th>
         <th>Status</th>
+        <th>Start Time</th>
+        <th>End Time</th>
         {% if my_matches %}
         <th>Server</th>
         <th></th>
         {% else %}
         <th>Owner</th>
         {% endif %}
+        <th>Season</th>
       </tr>
     </thead>
     <tbody>
 
-    {% for match in matches.items %}
+      {% for match in matches %}
       <tr>
         <td><a href="/match/{{match.id}}"> {{match.id}}</a></td>
 
@@ -49,7 +54,12 @@
         <td>
           {{ match.get_status_string() }}
         </td>
-
+        <td>
+          {{ match.get_start_time() }}
+        </td>
+        <td>
+          {{ match.get_end_time() }}
+        </td>
         {% if my_matches %}
         <td>{% if match.get_server() is not none   %} {{ match.get_server().get_display() }} {% endif %}</td>
         <td>
@@ -60,31 +70,61 @@
         {% else %}
         <td> <a href="{{ match.get_user().get_url() }}"> {{ match.get_user().name }} </a> </td>
         {% endif %}
-
+        {% if match.get_season() %}
+        <td> <a href="/season/{{ match.get_season_id() }}"> {{ match.get_season().name }} </a> </td>
+        {% else %}
+        <td> <a> N/A </a> </td>
+        {%endif%}
       </tr>
-    {% endfor %}
+      {% endfor %}
 
     </tbody>
   </table>
 
-  {{ pagination_buttons(matches) }}
-
 </div>
-
-{{ pagination_active(matches) }}
 
 {% if my_matches %}
 <script>
-    $(document).ready(function () {
-    $("#mymatches").parent().addClass("active"); })
+  $(document).ready(function () {
+    $("#matchmenu").addClass("active");
+  })
 </script>
 {% endif %}
 
 {% if all_matches %}
 <script>
-    $(document).ready(function () {
-    $("#matches").parent().addClass("active"); })
+  $(document).ready(function () {
+    $("#matches").parent().addClass("active");
+    $("#matchmenu").addClass("active");
+  })
 </script>
 {% endif %}
+
+{% if season_matches %}
+<script>
+  $(document).ready(function () {
+    $("#seasons").parent().addClass("active");
+  })
+</script>
+{% endif %}
+
+<script>
+    $('table.table').DataTable({
+      paging: true,
+      lengthChange: false,
+      "order": [],
+      "filter": false,
+      "bInfo" : false,
+      pageLength: 20,
+      preDrawCallback: function (settings){
+        var api = new $.fn.dataTable.Api(settings);
+        var pagination = $(this)
+          .closest('.dataTables_wrapper')
+          .find('.dataTables_paginate');
+          pagination.toggle(api.page.info().pages > 1);
+      }
+    });
+    
+  </script>
 
 {% endblock %}

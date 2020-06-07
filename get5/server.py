@@ -1,4 +1,4 @@
-from get5 import app, db, flash_errors, config_setting
+from get5 import app, db, flash_errors, config_setting, BadRequestError
 from models import GameServer
 import util
 
@@ -8,6 +8,7 @@ from wtforms import Form, validators, StringField, IntegerField, BooleanField
 
 
 server_blueprint = Blueprint('server', __name__)
+dbKey = app.config['DATABASE_KEY']
 
 
 class ServerForm(Form):
@@ -42,21 +43,25 @@ def server_create():
     if request.method == 'POST':
         num_servers = g.user.servers.count()
         max_servers = config_setting('USER_MAX_SERVERS')
-        if max_servers >= 0 and num_servers >= max_servers and not g.user.admin:
+        if max_servers >= 0 and num_servers >= max_servers and not (g.user.admin or g.user.super_admin):
             flash('You already have the maximum number of servers ({}) stored'.format(
                 num_servers))
 
         elif form.validate():
             mock = config_setting('TESTING')
-
             data = form.data
+            if not mock:
+                encRcon = util.encrypt(dbKey, str(data['rcon_password']))
+            else:
+                encRcon = data['rcon_password']
+
             server = GameServer.create(g.user,
                                        data['display_name'],
                                        data['ip_string'], data['port'],
-                                       data['rcon_password'],
-                                       data['public_server'] and g.user.admin)
+                                       encRcon,
+                                       data['public_server'] and (g.user.admin or g.user.super_admin))
 
-            if mock or util.check_server_connection(server):
+            if mock or util.check_server_connection(server, dbKey):
                 db.session.commit()
                 app.logger.info(
                     'User {} created server {}'.format(g.user.id, server.id))
@@ -69,35 +74,42 @@ def server_create():
             flash_errors(form)
 
     return render_template('server_create.html', user=g.user, form=form,
-                           edit=False, is_admin=g.user.admin)
+                           edit=False, is_admin=g.user.admin, is_sadmin=g.user.super_admin)
 
 
 @server_blueprint.route('/server/<int:serverid>/edit', methods=['GET', 'POST'])
 def server_edit(serverid):
     server = GameServer.query.get_or_404(serverid)
-    is_owner = g.user and (g.user.id == server.user_id)
+    is_owner = (g.user and (util.is_server_owner(g.user, server)))
+    is_sadmin = (g.user and g.user.super_admin)
     if not is_owner:
-        return 'Not your server', 400
+        if not is_sadmin:
+            raise BadRequestError('You do not have access to this server.')
 
+    # Attempt encryption/decryption
+    rconDecrypt = util.decrypt(dbKey, server.rcon_password)
     form = ServerForm(request.form,
                       display_name=server.display_name,
                       ip_string=server.ip_string,
                       port=server.port,
-                      rcon_password=server.rcon_password,
+                      rcon_password=server.rcon_password if rconDecrypt is None else rconDecrypt,
                       public_server=server.public_server)
 
     if request.method == 'POST':
         if form.validate():
             mock = app.config['TESTING']
-
             data = form.data
+            if not mock:
+                encRcon = util.encrypt(dbKey, str(data['rcon_password']))
+            else:
+                encRcon = data['rcon_password']
             server.display_name = data['display_name']
             server.ip_string = data['ip_string']
             server.port = data['port']
-            server.rcon_password = data['rcon_password']
-            server.public_server = (data['public_server'] and g.user.admin)
+            server.rcon_password = encRcon
+            server.public_server = (data['public_server'] and (g.user.admin or g.user.super_admin))
 
-            if mock or util.check_server_connection(server):
+            if mock or util.check_server_connection(server, dbKey):
                 db.session.commit()
                 return redirect('/myservers')
             else:
@@ -108,18 +120,20 @@ def server_edit(serverid):
             flash_errors(form)
 
     return render_template('server_create.html', user=g.user, form=form,
-                           edit=True, is_admin=g.user.admin)
+                           edit=True, is_admin=g.user.admin, is_sadmin=g.user.super_admin)
 
 
 @server_blueprint.route('/server/<int:serverid>/delete', methods=['GET'])
 def server_delete(serverid):
     server = GameServer.query.get_or_404(serverid)
-    is_owner = (g.user is not None) and (g.user.id == server.user_id)
+    is_owner = g.user and (g.user.id == server.user_id)
+    is_sadmin = g.user and g.user.super_admin
     if not is_owner:
-        return 'Not your server', 400
+        if not is_sadmin:
+            raise BadRequestError('You do not have access to this server.')
 
     if server.in_use:
-        return 'Cannot delete when in use', 400
+        raise BadRequestError('Cannot delete server when in use.')
 
     matches = g.user.matches.filter_by(server_id=serverid)
     for m in matches:
@@ -127,7 +141,7 @@ def server_delete(serverid):
 
     GameServer.query.filter_by(id=serverid).delete()
     db.session.commit()
-    return redirect('myservers')
+    return redirect('/myservers')
 
 
 @server_blueprint.route("/myservers")
@@ -137,5 +151,7 @@ def myservers():
 
     servers = GameServer.query.filter_by(
         user_id=g.user.id).order_by(-GameServer.id).limit(50)
+    if g.user.super_admin:
+        servers = GameServer.query.order_by(-GameServer.id)
 
     return render_template('servers.html', user=g.user, servers=servers)

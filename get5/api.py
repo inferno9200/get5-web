@@ -1,9 +1,10 @@
 from get5 import app, limiter, db, BadRequestError
 from util import as_int
-from models import Match, MapStats, PlayerStats, GameServer
+from models import Match, MapStats, PlayerStats, GameServer, Veto, Team
 
 from flask import Blueprint, request
 import flask_limiter
+import threading
 
 import re
 import datetime
@@ -39,6 +40,11 @@ def match_api_check(request, match):
         raise BadRequestError('Match already finalized')
 
 
+def match_demo_api_check(request, match):
+    if match.api_key != request.values.get('key'):
+        raise BadRequestError('Wrong API key')
+
+
 @api_blueprint.route('/match/<int:matchid>/finish', methods=['POST'])
 @limiter.limit('60 per hour', key_func=rate_limit_key)
 def match_finish(matchid):
@@ -63,6 +69,12 @@ def match_finish(matchid):
         elif winner == 'team2':
             match.team1_score = 0
             match.team2_score = 1
+        else:
+            match.team1_score = 0
+            match.team2_score = 0
+
+        if match.start_time is None:
+            match.start_time = datetime.datetime.utcnow()
 
     match.end_time = datetime.datetime.utcnow()
     server = GameServer.query.get(match.server_id)
@@ -71,7 +83,6 @@ def match_finish(matchid):
 
     db.session.commit()
     app.logger.info('Finished match {}, winner={}'.format(match, winner))
-
     return 'Success'
 
 
@@ -110,6 +121,41 @@ def match_map_update(matchid, mapnumber):
     else:
         return 'Failed to find map stats object', 400
 
+    return 'Success'
+
+
+@api_blueprint.route('/match/<int:matchid>/vetoUpdate', methods=['POST'])
+@limiter.limit('60 per hour', key_func=rate_limit_key)
+def match_veto_update(matchid):
+    match = Match.query.get_or_404(matchid)
+    match_api_check(request, match)
+    if request.values.get('teamString') == "team1":
+        teamName = Team.query.get(match.team1_id).name
+    elif request.values.get('teamString') == "team2":
+        teamName = Team.query.get(match.team2_id).name
+    else:
+        teamName = "Decider"
+    veto = Veto.create(matchid, teamName,
+                       request.values.get('map'), request.values.get('pick_or_veto'))
+    db.session.commit()
+    app.logger.info("Confirmed Map Veto For {} on map {}".format(
+        teamName, request.values.get('map')))
+    return 'Success'
+
+
+@api_blueprint.route('/match/<int:matchid>/map/<int:mapnumber>/demo', methods=['POST'])
+@limiter.limit('60 per hour', key_func=rate_limit_key)
+def match_demo_name(matchid, mapnumber):
+    # Upload demo name into database to reference later.
+    match = Match.query.get_or_404(matchid)
+    match_demo_api_check(request, match)
+    map_stats = match.map_stats.filter_by(map_number=mapnumber).first()
+    if map_stats:
+        map_stats.demoFile = request.values.get('demoFile')
+        db.session.commit()
+    else:
+        return 'Failed to find map stats object', 400
+    app.logger.info("Made it through the demo post.")
     return 'Success'
 
 

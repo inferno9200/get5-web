@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+
+{% macro leaderboard_table(aTeam) %}
+
+{% for team, value in aTeam.items() %}
+<tr>
+  <td>{{ loop.index }}</td>
+  <td class="text-center"><a href="/team/{{value.teamid}}">{{ team }}</a></td>
+  <td class="text-center">{{ value.wins }}</td>
+  <td class="text-center">{{ value.losses }}</td>
+  <th class="text-center"></th>
+  <td class="text-center">{{ value.rounddiff }}</td>
+</tr>
+{% endfor %}
+{% endmacro %}
+
+{% block content %}
+
+<div id="content">
+  <div class="container">
+    <h1>
+      {% if seasonsBoard %}
+      Current standings for {{seasonName}}
+      {% else %}
+      Current Standings of All Time
+      {% endif %}
+
+    </h1>
+
+    <table class="table table-striped">
+      <thead>
+        <tr>
+          <th>Rank</th>
+          <th class="text-center">Team</th>
+          <th class="text-center">Wins</th>
+          <th class="text-center">Losses</th>
+          <th class="text-center"></th>
+          <th class="text-center">Round Diff</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ leaderboard_table(standings) }}
+      </tbody>
+    </table>
+  </div>
+  <br>
+</div>
+<script>
+  $(document).ready(function () {
+    $("#leaderboard").parent().addClass("active");
+  })
+</script>
+{% endblock %}

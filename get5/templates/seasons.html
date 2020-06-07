@@ -1,0 +1,111 @@
+{% extends "layout.html" %}
+{% block content %}
+<div id="content">
+
+  <h1>
+    {% if my_seasons %}
+    Your Seasons
+    {% elif all_seasons %}
+    All Seasons
+    {% else %}
+    Seasons for <a href="/user/{{ season_owner.id }}"> {{ season_owner.name }}</a>
+    {% endif%}
+  </h1>
+
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>Season ID</th>
+        <th>Season Name</th>
+        <th>Start Date</th>
+        <th>End Date</th>
+        <th>Total Matches</th>
+        <th>Team Leaderboard</th>
+        <th>Individual Leaderboard</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      {% for season in seasons %}
+      <tr>
+        <td>{{season.id}}</td>
+        <td>
+          <a href="/season/{{season.id}}"> {{season.get_season_name()}}</a>
+        </td>
+        <td>
+          {{season.start_date.strftime('%Y-%m-%d')}}
+        </td>
+        <td>
+          {% if season.end_date %}
+          {{ season.end_date.strftime('%Y-%m-%d') }}
+          {% endif %}
+        </td>
+
+
+        <td>{{ matches | selectattr('season_id', 'equalto', season.id) | map(attribute='season_id') | list | length }}</td>
+
+        <td>
+          <a href="/leaderboard/season/{{season.id}}">Team Leaderboard</a>
+        </td>
+
+        <td>
+          <a href="/leaderboard/season/{{season.id}}/players">Indvidual Leaderboard</a>
+        </td>
+
+        {% if season.can_edit(user) %}
+        <td>
+          <div class="pull-right">
+            <a href="/season/{{season.id}}/edit" class="btn btn-primary btn-xs">Edit</a>
+          </div>
+          {% if season.can_delete(user) %}
+          <div class="pull-right">
+            <a href="/season/{{season.id}}/delete" class="btn btn-danger btn-xs">Delete</a>
+          </div>
+          {% endif %}
+        </td>
+        {% endif %}
+
+      </tr>
+      {% endfor %}
+
+    </tbody>
+  </table>
+
+
+</div>
+
+{% if my_seasons %}
+<script>
+  $(document).ready(function () {
+    $("#myseasons").parent().parent().addClass("active");
+  })
+</script>
+{% endif %}
+
+{% if all_seasons %}
+<script>
+  $(document).ready(function () {
+    $("#seasons").parent().addClass("active");
+  })
+</script>
+{% endif %}
+
+<script>
+    $('table.table').DataTable({
+      paging: true,
+      lengthChange: false,
+      "order": [],
+      "filter": false,
+      "bInfo" : false,
+      pageLength: 20,
+      preDrawCallback: function (settings){
+        var api = new $.fn.dataTable.Api(settings);
+        var pagination = $(this)
+          .closest('.dataTables_wrapper')
+          .find('.dataTables_paginate');
+          pagination.toggle(api.page.info().pages > 1);
+      }
+    });
+</script>
+
+{% endblock %}

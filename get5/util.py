@@ -1,6 +1,10 @@
 import os
 import socket
 import subprocess
+import base64
+from Crypto.Cipher import AES
+from Crypto.Hash import SHA256
+from Crypto import Random
 
 
 def as_int(val, on_fail=0):
@@ -27,20 +31,27 @@ def format_mapname(mapname):
             return mapname
 
 
-def check_server_connection(server):
+def check_server_connection(server, key=None):
+    if key:
+        decPass = decrypt(key, server.rcon_password)
+    else:
+        decPass = server.rcon_password
     response = send_rcon_command(
-        server.ip_string, server.port, server.rcon_password, 'status')
+        server.ip_string, server.port, decPass, 'status')
     return response is not None
 
 
-def check_server_avaliability(server):
+def check_server_avaliability(server, key=None):
     import json
 
     if not server:
         return None, 'Server not found'
-
+    if key:
+        encRcon = decrypt(key, server.rcon_password)
+    else:
+        encRcon = server.rcon_password
     response = send_rcon_command(
-        server.ip_string, server.port, server.rcon_password, 'get5_web_avaliable')
+        server.ip_string, server.port, encRcon, 'get5_web_avaliable')
 
     if response:
         json_error = False
@@ -122,3 +133,58 @@ def get_version():
         return subprocess.check_output(cmd, cwd=root_dir).strip()
     except (OSError, subprocess.CalledProcessError):
         return None
+
+
+def encrypt(key, source, encode=True):
+    if not source:
+        return
+    # use SHA-256 over our key to get a proper-sized AES key
+    key = SHA256.new(key).digest()
+    IV = Random.new().read(AES.block_size)  # generate IV
+    encryptor = AES.new(key, AES.MODE_CBC, IV)
+    # calculate needed padding
+    padding = AES.block_size - len(source) % AES.block_size
+    # Python 2.x: source += chr(padding) * padding # Python 3.x
+    # bytes([padding]) * padding
+    source += chr(padding) * padding
+    # store the IV at the beginning and encrypt
+    data = IV + encryptor.encrypt(source)
+    return base64.b64encode(data).decode("latin-1") if encode else data
+
+# Try excepts are to avoid any backwards compatibility issues.
+
+
+def decrypt(key, source, decode=True):
+    if not source:
+        return None
+    if decode:
+        try:
+            source = base64.b64decode(source.encode("latin-1"))
+        except:
+            return None
+    # use SHA-256 over our key to get a proper-sized AES key
+    key = SHA256.new(key).digest()
+    IV = source[:AES.block_size]  # extract the IV from the beginning
+    try:
+        decryptor = AES.new(key, AES.MODE_CBC, IV)
+    except:
+        return None
+    data = decryptor.decrypt(source[AES.block_size:])  # decrypt
+    # pick the padding value from the end; Python 2.x: ord(data[-1]) # Python
+    # 3.x: data[-1]
+    padding = ord(data[-1])
+    # Python 2.x: chr(padding) * padding # Python 3.x: bytes([padding]) *
+    # padding:
+    if data[-padding:] != chr(padding) * padding:
+        return None
+    return data[:-padding]  # remove the padding
+
+def is_server_owner(user, server):
+    if user is None or server is None:
+        return False
+    elif user.id == server.user_id:
+        return True
+    else:
+        return False
+
+    return bool(user.admin)

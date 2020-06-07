@@ -21,6 +21,7 @@ import logging
 import logging.handlers
 import re
 import sys
+import os
 
 import logos
 import steamid
@@ -29,9 +30,9 @@ import util
 from flask import (Flask, render_template, flash, jsonify,
                    request, g, session, redirect)
 
-import flask.ext.cache
-import flask.ext.sqlalchemy
-import flask.ext.openid
+import flask_cache
+import flask_sqlalchemy
+import flask_openid
 import flask_limiter
 
 # This is a dirty, awful hack to get utf8 encoding 'right'.
@@ -43,8 +44,14 @@ sys.setdefaultencoding('utf-8')
 app = Flask(__name__, instance_relative_config=True)
 app.config.from_pyfile('prod_config.py')
 
+LOGO_FOLDER = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(
+    __file__), 'static', 'resource', 'csgo', 'resource', 'flash', 'econ', 'tournaments', 'teams'))
+PANO_LOGO_FOLDER = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(
+    __file__), 'static', 'resource', 'csgo', 'materials', 'panorama', 'images', 'tournaments', 'teams'))
+app.config['LOGO_FOLDER'] = LOGO_FOLDER
+app.config['PANO_LOGO_FOLDER'] = PANO_LOGO_FOLDER
 # Setup caching
-cache = flask.ext.cache.Cache(app, config={
+cache = flask_cache.Cache(app, config={
     'CACHE_TYPE': 'filesystem',
     'CACHE_DIR': '/tmp',
     'CACHE_THRESHOLD': 25000,
@@ -52,11 +59,12 @@ cache = flask.ext.cache.Cache(app, config={
 })
 
 # Setup openid
-oid = flask.ext.openid.OpenID(app)
+# oid = flask.ext.openid.OpenID(app)
+oid = flask_openid.OpenID(app)
 
 # Setup database connection
-db = flask.ext.sqlalchemy.SQLAlchemy(app)
-from models import User, Team, GameServer, Match, MapStats, PlayerStats  # noqa: E402
+db = flask_sqlalchemy.SQLAlchemy(app)
+from models import User, Team, GameServer, Match, MapStats, PlayerStats, Season  # noqa: E402
 
 # Setup rate limiting
 limiter = flask_limiter.Limiter(
@@ -83,6 +91,8 @@ app.logger.setLevel(logging.INFO)
 
 # Find version info
 app.jinja_env.globals.update(COMMIT_STRING=util.get_version())
+# Set our webpanel name.
+app.jinja_env.globals.update(WEBPANEL_NAME=app.config['WEBPANEL_NAME'])
 
 # Setup any data structures needed
 logos.initialize_logos()
@@ -101,6 +111,15 @@ def register_blueprints():
 
     from server import server_blueprint
     app.register_blueprint(server_blueprint)
+
+    from leaderboard import leaderboard_blueprint
+    app.register_blueprint(leaderboard_blueprint)
+
+    from season import season_blueprint
+    app.register_blueprint(season_blueprint)
+
+    from stats import stats_blueprint
+    app.register_blueprint(stats_blueprint)
 
 
 @app.route('/login')
@@ -218,7 +237,7 @@ def get_metrics():
         Match.end_time is not None).count())
     add_val('Servers added', GameServer.query.count())
     add_val('Maps with stats saved', MapStats.query.count())
-    add_val('Unique players', PlayerStats.query.distinct().count())
+    add_val('Unique players', PlayerStats.query.distinct(PlayerStats.steam_id).count())
 
     return values
 
@@ -227,6 +246,7 @@ _config_defaults = {
     'LOG_PATH': None,
     'DEBUG': False,
     'TESTING': False,
+    'JSON_AS_ASCII': False,
     'SQLALCHEMY_DATABASE_URI': 'mysql://user:password@host/db',
     'SQLALCHEMY_TRACK_MODIFICATIONS': False,
     'STEAM_API_KEY': '???',
@@ -234,6 +254,7 @@ _config_defaults = {
     'USER_MAX_SERVERS': 10,
     'USER_MAX_TEAMS': 100,
     'USER_MAX_MATCHES': 1000,
+    'USER_MAX_SEASONS': 100,
     'DEFAULT_PAGE': '/matches',
     'ADMINS_ACCESS_ALL_MATCHES': False,
     'CREATE_MATCH_TITLE_TEXT': False,
@@ -259,6 +280,7 @@ _config_defaults = {
         'de_overpass',
         'de_train',
     ],
+    LOGO_FOLDER: '/var/www/get5-web/get5/static/img/logos',
 }
 
 
