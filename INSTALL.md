@@ -52,7 +52,7 @@ Run the following commands to download Get5-Web. This will place it in a **new f
 
 ```sh
 cd /var/www
-git clone https://github.com/splewis/get5-web
+git clone https://github.com/inferno9200/get5-web
 cd get5-web
 ```
 
